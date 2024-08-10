@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Full-Screen Video.js with Thumbnails and Poster</title>
+    <!-- Video.js CSS -->
+    <link href="https://vjs.zencdn.net/7.21.1/video-js.css" rel="stylesheet">
+    <!-- Video.js HLS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/videojs-http-streaming@2.11.1/dist/videojs-http-streaming.min.js"></script>
+
+    <style>
+        /* Ensure body and html fill the entire screen */
+        body, html {
+         background-color: #000;
+     }
+
+     /* Video.js player should fill the screen */
+     .video-js {
+         width: 100%; /* Adjust this size as necessary */
+         height: 100vh;
+         background-color: black;
+         bottom: 0;
+     }
+
+        /* Style for the thumbnail holder */
+        .video-js .vjs-thumbnail-holder {
+            position: absolute;
+            bottom: 50px; /* Position the thumbnail above the timebar */
+            left: 0;
+            background-color: black;
+            display: none; /* Hide by default */
+            z-index: 10; /* Ensure it appears above other elements */
+        }
+
+        /* Style for the thumbnail itself */
+        .video-js .vjs-thumbnail {
+            background-size: fill;
+            background-repeat: no-repeat;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Video.js Player -->
+    <video id="my-video" class="video-js vjs-default-skin" controls preload="auto">
+        <!-- Source will be added dynamically -->
+    </video>
+
+    <!-- Video.js JavaScript -->
+    <script src="https://vjs.zencdn.net/7.21.1/video.js"></script>
+
+    <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            // Function to get URL parameters
+            function getUrlParameter(name) {
+                name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+                const regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+                const results = regex.exec(location.search);
+                return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+            }
+
+            // Fetch parameters from URL
+            const videoUrl = getUrlParameter('file');
+            const posterUrl = getUrlParameter('poster');
+            const spriteUrl = getUrlParameter('sprite');
+            const thumbUrl = getUrlParameter('thumb');
+            const width = parseInt(getUrlParameter('w'), 10) || 160;
+            const height = parseInt(getUrlParameter('h'), 10) || 90;
+            const interval = parseInt(getUrlParameter('interval'), 10) || 10;
+
+            // Initialize Video.js player with the poster
+            const player = videojs('my-video', {
+                poster: posterUrl,
+                controls: true,
+                preload: 'auto'
+            });
+
+            // Determine the type of video based on the URL
+            let videoType = 'video/mp4'; // Default type
+            if (videoUrl.endsWith('.m3u8')) {
+                videoType = 'application/x-mpegURL';
+            }
+
+            // Add single video source dynamically
+            const source = document.createElement('source');
+            source.src = videoUrl;
+            source.type = videoType;
+            player.el().appendChild(source);
+
+            // Ensure the player handles the sources correctly and plays
+            player.ready(() => {
+                player.src({ src: videoUrl, type: videoType }); // Set initial source
+                player.play().catch(error => {
+                    console.error('Playback failed:', error);
+                });
+                player.requestFullscreen();
+
+                // If sources are not properly set or loaded
+                player.on('error', () => {
+                    console.error('Error loading the video sources');
+                });
+
+                // Add WebVTT track for thumbnails if thumb URL is provided
+                if (thumbUrl) {
+                    player.addRemoteTextTrack({
+                        kind: 'metadata',
+                        src: thumbUrl,
+                        label: 'Thumbnails',
+                        srclang: 'en'
+                    }, false);
+                }
+
+                // Preload sprite thumbnail image if sprite URL is provided
+                if (spriteUrl) {
+                    const spriteImage = new Image();
+                    spriteImage.src = spriteUrl; // Path to your sprite image
+                    spriteImage.onload = () => {
+                        // Only initialize thumbnails once the sprite image has loaded
+                        player.spriteThumbnails({
+                            spriteImage,
+                            width: width,  // Width of each thumbnail
+                            height: height, // Height of each thumbnail
+                            interval: interval // Time interval between thumbnails in seconds
+                        });
+                    };
+                }
+            });
+
+        });
+
+        // Custom Sprite Thumbnail Logic
+        videojs.registerPlugin('spriteThumbnails', function(options) {
+            const player = this;
+            const settings = videojs.mergeOptions({
+                spriteImage: null,
+                width: 356,
+                height: 200,
+                interval: 10
+            }, options);
+
+            player.ready(function() {
+                const progressControl = player.controlBar.progressControl;
+                const seekBar = progressControl.seekBar;
+
+                // Create a thumbnail container
+                const thumbnailHolder = document.createElement('div');
+                thumbnailHolder.className = 'vjs-thumbnail-holder';
+                seekBar.el().appendChild(thumbnailHolder);
+
+                // Use the preloaded sprite image
+                if (settings.spriteImage) {
+                    thumbnailHolder.style.backgroundImage = `url(${settings.spriteImage.src})`;
+                }
+
+                // Update the thumbnail on mousemove
+                seekBar.on('mousemove', function(event) {
+                    const duration = player.duration();
+                    const mouseTime = seekBar.calculateDistance(event) * duration;
+                    const index = Math.floor(mouseTime / settings.interval);
+
+                    // Calculate background position
+                    const x = -((index % (settings.spriteImage.width / settings.width)) * settings.width);
+                    const y = -((Math.floor(index / (settings.spriteImage.width / settings.width))) * settings.height);
+
+                    thumbnailHolder.style.backgroundPosition = `${x}px ${y}px`;
+                    thumbnailHolder.style.width = `${settings.width}px`;
+                    thumbnailHolder.style.height = `${settings.height}px`;
+
+                    // Position the thumbnail
+                    const mouseTimePosition = seekBar.calculateDistance(event) * seekBar.width();
+                    thumbnailHolder.style.left = `${mouseTimePosition - (settings.width / 2)}px`;
+                    thumbnailHolder.style.display = 'block'; // Show the thumbnail
+                });
+
+                // Hide the thumbnail on mouseleave
+                seekBar.on('mouseleave', function() {
+                    thumbnailHolder.style.display = 'none';
+                });
+            });
+        });
+    </script>
+</body>
+</html>
